@@ -1,0 +1,328 @@
+stages:
+  - lint
+  - test
+  - build
+  - push
+  - deploy
+
+variables:
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: "/certs"
+  BACKEND_IMAGE: $CI_REGISTRY_IMAGE/backend
+  ADMIN_API_IMAGE: $CI_REGISTRY_IMAGE/admin-api
+  FRONTEND_IMAGE: $CI_REGISTRY_IMAGE/frontend
+  ADMIN_PANEL_IMAGE: $CI_REGISTRY_IMAGE/admin-panel
+  K8S_NAMESPACE: asset-management
+
+# Cache node_modules across jobs
+.node_cache: &node_cache
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - backend/node_modules/
+      - admin-api/node_modules/
+      - frontend/node_modules/
+      - admin-panel/node_modules/
+
+# ==================== LINT ====================
+lint:backend:
+  stage: lint
+  image: node:20-alpine
+  <<: *node_cache
+  script:
+    - cd backend
+    - npm ci --prefer-offline
+    - npx tsc --noEmit
+  rules:
+    - changes:
+        - backend/**/*
+
+lint:admin-api:
+  stage: lint
+  image: node:20-alpine
+  <<: *node_cache
+  script:
+    - cd admin-api
+    - npm ci --prefer-offline
+    - npx tsc --noEmit
+  rules:
+    - changes:
+        - admin-api/**/*
+
+lint:frontend:
+  stage: lint
+  image: node:20-alpine
+  <<: *node_cache
+  script:
+    - cd frontend
+    - npm ci --prefer-offline
+    - npx tsc --noEmit
+  rules:
+    - changes:
+        - frontend/**/*
+
+lint:admin-panel:
+  stage: lint
+  image: node:20-alpine
+  <<: *node_cache
+  script:
+    - cd admin-panel
+    - npm ci --prefer-offline
+    - npx tsc --noEmit
+  rules:
+    - changes:
+        - admin-panel/**/*
+
+# ==================== TEST ====================
+test:backend:
+  stage: test
+  image: node:20-alpine
+  <<: *node_cache
+  services:
+    - postgres:16-alpine
+    - redis:7-alpine
+  variables:
+    POSTGRES_DB: asset_management_test
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: testpassword
+    DB_HOST: postgres
+    DB_PORT: "5432"
+    DB_NAME: asset_management_test
+    DB_USER: postgres
+    DB_PASSWORD: testpassword
+    REDIS_HOST: redis
+    REDIS_PORT: "6379"
+    JWT_SECRET: test-jwt-secret
+    JWT_REFRESH_SECRET: test-jwt-refresh-secret
+  script:
+    - cd backend
+    - npm ci --prefer-offline
+    - npm test
+  rules:
+    - changes:
+        - backend/**/*
+
+test:admin-api:
+  stage: test
+  image: node:20-alpine
+  <<: *node_cache
+  services:
+    - postgres:16-alpine
+    - redis:7-alpine
+  variables:
+    POSTGRES_DB: asset_management_test
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: testpassword
+    DB_HOST: postgres
+    DB_PORT: "5432"
+    DB_NAME: asset_management_test
+    DB_USER: postgres
+    DB_PASSWORD: testpassword
+    REDIS_HOST: redis
+    REDIS_PORT: "6379"
+    JWT_SECRET: test-jwt-secret
+    JWT_REFRESH_SECRET: test-jwt-refresh-secret
+  script:
+    - cd admin-api
+    - npm ci --prefer-offline
+    - npm test
+  rules:
+    - changes:
+        - admin-api/**/*
+
+test:frontend:
+  stage: test
+  image: node:20-alpine
+  <<: *node_cache
+  script:
+    - cd frontend
+    - npm ci --prefer-offline
+    - npm test -- --run
+  rules:
+    - changes:
+        - frontend/**/*
+
+test:admin-panel:
+  stage: test
+  image: node:20-alpine
+  <<: *node_cache
+  script:
+    - cd admin-panel
+    - npm ci --prefer-offline
+    - npm test -- --run
+  rules:
+    - changes:
+        - admin-panel/**/*
+
+# ==================== BUILD ====================
+build:backend:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  script:
+    - docker build -t $BACKEND_IMAGE:$CI_COMMIT_SHA --target production ./backend
+    - docker tag $BACKEND_IMAGE:$CI_COMMIT_SHA $BACKEND_IMAGE:$CI_COMMIT_REF_SLUG
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_MERGE_REQUEST_ID
+
+build:admin-api:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  script:
+    - docker build -t $ADMIN_API_IMAGE:$CI_COMMIT_SHA --target production ./admin-api
+    - docker tag $ADMIN_API_IMAGE:$CI_COMMIT_SHA $ADMIN_API_IMAGE:$CI_COMMIT_REF_SLUG
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_MERGE_REQUEST_ID
+
+build:frontend:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  script:
+    - docker build -t $FRONTEND_IMAGE:$CI_COMMIT_SHA --target production ./frontend
+    - docker tag $FRONTEND_IMAGE:$CI_COMMIT_SHA $FRONTEND_IMAGE:$CI_COMMIT_REF_SLUG
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_MERGE_REQUEST_ID
+
+build:admin-panel:
+  stage: build
+  image: docker:24
+  services:
+    - docker:24-dind
+  script:
+    - docker build -t $ADMIN_PANEL_IMAGE:$CI_COMMIT_SHA --target production ./admin-panel
+    - docker tag $ADMIN_PANEL_IMAGE:$CI_COMMIT_SHA $ADMIN_PANEL_IMAGE:$CI_COMMIT_REF_SLUG
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_MERGE_REQUEST_ID
+
+# ==================== PUSH ====================
+push:backend:
+  stage: push
+  image: docker:24
+  services:
+    - docker:24-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $BACKEND_IMAGE:$CI_COMMIT_SHA --target production ./backend
+    - docker tag $BACKEND_IMAGE:$CI_COMMIT_SHA $BACKEND_IMAGE:$CI_COMMIT_REF_SLUG
+    - docker push $BACKEND_IMAGE:$CI_COMMIT_SHA
+    - docker push $BACKEND_IMAGE:$CI_COMMIT_REF_SLUG
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "main" ]; then
+        docker tag $BACKEND_IMAGE:$CI_COMMIT_SHA $BACKEND_IMAGE:latest
+        docker push $BACKEND_IMAGE:latest
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"
+
+push:admin-api:
+  stage: push
+  image: docker:24
+  services:
+    - docker:24-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $ADMIN_API_IMAGE:$CI_COMMIT_SHA --target production ./admin-api
+    - docker tag $ADMIN_API_IMAGE:$CI_COMMIT_SHA $ADMIN_API_IMAGE:$CI_COMMIT_REF_SLUG
+    - docker push $ADMIN_API_IMAGE:$CI_COMMIT_SHA
+    - docker push $ADMIN_API_IMAGE:$CI_COMMIT_REF_SLUG
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "main" ]; then
+        docker tag $ADMIN_API_IMAGE:$CI_COMMIT_SHA $ADMIN_API_IMAGE:latest
+        docker push $ADMIN_API_IMAGE:latest
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"
+
+push:frontend:
+  stage: push
+  image: docker:24
+  services:
+    - docker:24-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $FRONTEND_IMAGE:$CI_COMMIT_SHA --target production ./frontend
+    - docker tag $FRONTEND_IMAGE:$CI_COMMIT_SHA $FRONTEND_IMAGE:$CI_COMMIT_REF_SLUG
+    - docker push $FRONTEND_IMAGE:$CI_COMMIT_SHA
+    - docker push $FRONTEND_IMAGE:$CI_COMMIT_REF_SLUG
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "main" ]; then
+        docker tag $FRONTEND_IMAGE:$CI_COMMIT_SHA $FRONTEND_IMAGE:latest
+        docker push $FRONTEND_IMAGE:latest
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"
+
+push:admin-panel:
+  stage: push
+  image: docker:24
+  services:
+    - docker:24-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $ADMIN_PANEL_IMAGE:$CI_COMMIT_SHA --target production ./admin-panel
+    - docker tag $ADMIN_PANEL_IMAGE:$CI_COMMIT_SHA $ADMIN_PANEL_IMAGE:$CI_COMMIT_REF_SLUG
+    - docker push $ADMIN_PANEL_IMAGE:$CI_COMMIT_SHA
+    - docker push $ADMIN_PANEL_IMAGE:$CI_COMMIT_REF_SLUG
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "main" ]; then
+        docker tag $ADMIN_PANEL_IMAGE:$CI_COMMIT_SHA $ADMIN_PANEL_IMAGE:latest
+        docker push $ADMIN_PANEL_IMAGE:latest
+      fi
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"
+
+# ==================== DEPLOY ====================
+deploy:staging:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  environment:
+    name: staging
+    url: https://assets-staging.company.com
+  before_script:
+    - kubectl config use-context $KUBE_CONTEXT_STAGING
+  script:
+    - kubectl -n $K8S_NAMESPACE set image deployment/backend backend=$BACKEND_IMAGE:$CI_COMMIT_SHA
+    - kubectl -n $K8S_NAMESPACE set image deployment/admin-api admin-api=$ADMIN_API_IMAGE:$CI_COMMIT_SHA
+    - kubectl -n $K8S_NAMESPACE set image deployment/frontend frontend=$FRONTEND_IMAGE:$CI_COMMIT_SHA
+    - kubectl -n $K8S_NAMESPACE set image deployment/admin-panel admin-panel=$ADMIN_PANEL_IMAGE:$CI_COMMIT_SHA
+    - kubectl -n $K8S_NAMESPACE rollout status deployment/backend --timeout=120s
+    - kubectl -n $K8S_NAMESPACE rollout status deployment/admin-api --timeout=120s
+    - kubectl -n $K8S_NAMESPACE rollout status deployment/frontend --timeout=120s
+    - kubectl -n $K8S_NAMESPACE rollout status deployment/admin-panel --timeout=120s
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+deploy:production:
+  stage: deploy
+  image: bitnami/kubectl:latest
+  environment:
+    name: production
+    url: https://assets.company.com
+  before_script:
+    - kubectl config use-context $KUBE_CONTEXT_PRODUCTION
+  script:
+    - kubectl -n $K8S_NAMESPACE set image deployment/backend backend=$BACKEND_IMAGE:$CI_COMMIT_SHA
+    - kubectl -n $K8S_NAMESPACE set image deployment/admin-api admin-api=$ADMIN_API_IMAGE:$CI_COMMIT_SHA
+    - kubectl -n $K8S_NAMESPACE set image deployment/frontend frontend=$FRONTEND_IMAGE:$CI_COMMIT_SHA
+    - kubectl -n $K8S_NAMESPACE set image deployment/admin-panel admin-panel=$ADMIN_PANEL_IMAGE:$CI_COMMIT_SHA
+    - kubectl -n $K8S_NAMESPACE rollout status deployment/backend --timeout=120s
+    - kubectl -n $K8S_NAMESPACE rollout status deployment/admin-api --timeout=120s
+    - kubectl -n $K8S_NAMESPACE rollout status deployment/frontend --timeout=120s
+    - kubectl -n $K8S_NAMESPACE rollout status deployment/admin-panel --timeout=120s
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+  allow_failure: false
