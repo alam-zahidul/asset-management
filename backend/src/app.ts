@@ -11,6 +11,7 @@ import authRoutes from './routes/auth';
 import assetRoutes from './routes/assets';
 import fieldRoutes from './routes/fields';
 import adminRoutes from './routes/admin';
+import vmwareRoutes from './routes/vmware';
 
 const app = express();
 
@@ -68,6 +69,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/assets', assetRoutes);
 app.use('/api/fields', fieldRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/vmware', vmwareRoutes);
 
 // 404
 app.use((_req, res) => {

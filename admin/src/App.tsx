@@ -3,11 +3,13 @@ import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Layout, Menu, Button, Space, Spin, Dropdown } from 'antd';
 import {
   SettingOutlined, UserOutlined, AuditOutlined, LogoutOutlined, AppstoreOutlined,
+  CloudServerOutlined,
 } from '@ant-design/icons';
 import LoginPage from './pages/LoginPage';
 import FieldManagementPage from './pages/FieldManagementPage';
 import UserManagementPage from './pages/UserManagementPage';
 import AuditLogsPage from './pages/AuditLogsPage';
+import VmwareConnectionsPage from './pages/VmwareConnectionsPage';
 import { useAuthStore } from './store/authStore';
 
 const { Header, Content, Sider } = Layout;
@@ -40,6 +42,7 @@ const AdminLayout: React.FC = () => {
   const menuItems = [
     { key: '/', icon: <SettingOutlined />, label: 'Field Management' },
     { key: '/users', icon: <UserOutlined />, label: 'User Management' },
+    { key: '/vmware', icon: <CloudServerOutlined />, label: 'VMware Connections' },
     { key: '/audit-logs', icon: <AuditOutlined />, label: 'Audit Logs' },
   ];
 
@@ -74,6 +77,7 @@ const AdminLayout: React.FC = () => {
           <Routes>
             <Route path="/" element={<FieldManagementPage />} />
             <Route path="/users" element={<UserManagementPage />} />
+            <Route path="/vmware" element={<VmwareConnectionsPage />} />
             <Route path="/audit-logs" element={<AuditLogsPage />} />
           </Routes>
         </Content>

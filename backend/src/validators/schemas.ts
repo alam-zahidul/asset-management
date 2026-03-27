@@ -98,3 +98,35 @@ export const exportTemplateSchema = Joi.object({
   filters: Joi.object().optional().allow(null),
   format: Joi.string().valid('xlsx', 'csv', 'pdf').default('xlsx'),
 });
+
+// VMware schemas
+export const vmwareConnectionCreateSchema = Joi.object({
+  name: Joi.string().trim().min(1).max(255).required(),
+  server: Joi.string().trim().min(1).max(500).required(),
+  username: Joi.string().trim().min(1).max(255).required(),
+  password: Joi.string().min(1).max(500).required(),
+  tls_reject_unauthorized: Joi.boolean().default(true),
+  sync_interval_minutes: Joi.number().integer().min(5).max(1440).default(60),
+});
+
+export const vmwareConnectionUpdateSchema = Joi.object({
+  name: Joi.string().trim().min(1).max(255).optional(),
+  server: Joi.string().trim().min(1).max(500).optional(),
+  username: Joi.string().trim().min(1).max(255).optional(),
+  password: Joi.string().min(1).max(500).optional(),
+  tls_reject_unauthorized: Joi.boolean().optional(),
+  sync_interval_minutes: Joi.number().integer().min(5).max(1440).optional(),
+}).min(1);
+
+export const vmwareTestDirectSchema = Joi.object({
+  server: Joi.string().trim().min(1).max(500).required(),
+  username: Joi.string().trim().min(1).max(255).required(),
+  password: Joi.string().min(1).max(500).required(),
+  tls_reject_unauthorized: Joi.boolean().default(true),
+});
+
+export const vmwareSyncLogQuerySchema = Joi.object({
+  page: Joi.number().integer().min(1).default(1),
+  limit: Joi.number().integer().min(1).max(200).default(25),
+  connectionId: Joi.string().uuid().optional(),
+});

@@ -49,6 +49,10 @@ const config = {
     windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),
     maxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10),
   },
+
+  vmware: {
+    encryptionKey: process.env.VMWARE_ENCRYPTION_KEY || '',
+  },
 } as const;
 
 if (!config.jwt.secret || !config.jwt.refreshSecret) {

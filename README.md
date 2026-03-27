@@ -16,12 +16,12 @@ A full-stack asset/server inventory management application with LDAP Active Dire
 │         │                 │                │                    │
 │         └─────────────────┼────────────────┘                    │
 │                           │                                     │
-│              ┌────────────┼────────────┐                        │
-│              │            │            │                        │
-│        ┌─────┴─────┐ ┌───┴───┐  ┌─────┴─────┐                 │
-│        │ PostgreSQL │ │ Redis │  │ LDAP/AD   │                 │
-│        │ (3 schemas)│ │ Cache │  │ Server    │                 │
-│        └───────────┘  └───────┘  └───────────┘                 │
+│              ┌────────────┼────────────┬───────────┐            │
+│              │            │            │           │            │
+│        ┌─────┴─────┐ ┌───┴───┐  ┌─────┴─────┐ ┌──┴──────┐    │
+│        │ PostgreSQL │ │ Redis │  │ LDAP/AD   │ │ vCenter │    │
+│        │ (3 schemas)│ │ Cache │  │ Server    │ │ Server  │    │
+│        └───────────┘  └───────┘  └───────────┘ └─────────┘    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -38,8 +38,8 @@ A full-stack asset/server inventory management application with LDAP Active Dire
 | Schema | Purpose | Tables |
 |---|---|---|
 | **auth** | Authentication & authorization | users, roles, permissions, user_roles, role_permissions, refresh_tokens |
-| **app** | Application data | assets, import_logs |
-| **admin** | Admin configuration | field_definitions, export_templates, audit_logs |
+| **app** | Application data | assets, import_logs, vmware_sync_logs |
+| **admin** | Admin configuration | field_definitions, export_templates, audit_logs, vmware_connections |
 
 ## Features
 
@@ -47,7 +47,7 @@ A full-stack asset/server inventory management application with LDAP Active Dire
 - **LDAP/Active Directory** authentication
 - **JWT tokens** with refresh token rotation
 - **Role-Based Access Control** (Admin, Editor, Viewer)
-- **Granular permissions** (18 permission types across 6 resources)
+- **Granular permissions** (21 permission types across 7 resources)
 - Account activation/deactivation
 
 ### Asset Inventory Management
@@ -68,6 +68,19 @@ A full-stack asset/server inventory management application with LDAP Active Dire
 - Export with current filters applied
 - Save export templates for reuse
 
+### VMware vCenter Inventory Sync
+- **Automated discovery** of VMs and hosts from VMware vCenter
+- Uses the **VI/JSON API** (REST-based protocol over HTTPS)
+- Supports vSphere 7.x and 8.x with automatic release negotiation
+- Properties synced: hostname, IP address, CPU cores, RAM, disk, OS, power state
+- Smart upsert — creates new asset records or updates existing ones
+- Source tracking — assets tagged as `manual` or `vmware` with moRef reference
+- Multiple vCenter connections with per-connection sync intervals
+- Connection credentials encrypted with AES-256-GCM
+- Test connection before saving (validates credentials and shows VM/host count)
+- Sync history with detailed per-run statistics (VMs found, created, updated, errors)
+- Trigger sync manually from the frontend or configure intervals from admin
+
 ### Admin Portal
 - **Field Management**: Add, edit, delete inventory fields
 - Configure field type, required/optional, filterable, exportable
@@ -75,6 +88,7 @@ A full-stack asset/server inventory management application with LDAP Active Dire
 - Manage select/dropdown options
 - Group fields by category
 - **User Management**: View users, assign/remove roles, enable/disable accounts
+- **VMware Connections**: Add, edit, delete vCenter connections; test connectivity; toggle active/inactive
 - **Audit Logs**: Full audit trail of all actions
 
 ### Security
@@ -234,12 +248,26 @@ The `.gitlab-ci.yml` pipeline handles:
 | `/api/admin/audit-logs` | GET | audit:read | View audit logs |
 | `/api/admin/templates` | GET/POST | templates:read/create | Export templates |
 
+### VMware vCenter Sync
+| Endpoint | Method | Permission | Description |
+|---|---|---|---|
+| `/api/vmware/connections` | GET | vmware:read | List vCenter connections |
+| `/api/vmware/connections/:id` | GET | vmware:read | Get connection details |
+| `/api/vmware/connections` | POST | vmware:manage | Add new vCenter connection |
+| `/api/vmware/connections/:id` | PUT | vmware:manage | Update connection |
+| `/api/vmware/connections/:id` | DELETE | vmware:manage | Delete connection |
+| `/api/vmware/connections/:id/toggle-active` | PATCH | vmware:manage | Enable/disable connection |
+| `/api/vmware/connections/:id/test` | POST | vmware:read | Test saved connection |
+| `/api/vmware/connections/:id/sync` | POST | vmware:sync | Trigger inventory sync |
+| `/api/vmware/test` | POST | vmware:manage | Test connection with provided credentials |
+| `/api/vmware/sync-logs` | GET | vmware:read | View sync history |
+
 ## Default Roles
 
 | Role | Permissions |
 |---|---|
-| **admin** | Full access to all resources |
-| **editor** | Create, read, update assets; import/export; read fields; manage templates |
+| **admin** | Full access to all resources including VMware connection management |
+| **editor** | Create, read, update assets; import/export; read fields; manage templates; view and trigger VMware sync |
 | **viewer** | Read assets, export, read fields and templates |
 
 ## Project Structure
@@ -254,14 +282,14 @@ asset-management/
 │   │   ├── migrations/         # Database schema migrations
 │   │   ├── routes/             # Express route definitions
 │   │   ├── seeds/              # Default data (roles, permissions, fields)
-│   │   ├── services/           # Business logic layer
+│   │   ├── services/           # Business logic (LDAP, assets, VMware client, sync)
 │   │   ├── utils/              # Logger, sanitizer, error classes
 │   │   ├── validators/         # Joi validation schemas
 │   │   └── app.ts              # Express app entry point
 │   └── Dockerfile
 ├── frontend/                   # User-facing React app
 │   ├── src/
-│   │   ├── pages/              # Login, AssetList, ImportLogs
+│   │   ├── pages/              # Login, AssetList, ImportLogs, VmwareSync
 │   │   ├── services/           # Axios API client
 │   │   ├── store/              # Zustand state management
 │   │   ├── utils/              # Client-side sanitization
@@ -270,7 +298,7 @@ asset-management/
 │   └── Dockerfile
 ├── admin/                      # Admin React app
 │   ├── src/
-│   │   ├── pages/              # FieldManagement, UserManagement, AuditLogs
+│   │   ├── pages/              # FieldManagement, UserManagement, VmwareConnections, AuditLogs
 │   │   ├── services/           # Axios API client
 │   │   ├── store/              # Auth state
 │   │   └── App.tsx

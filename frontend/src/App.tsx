@@ -2,11 +2,12 @@ import React, { useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Layout, Menu, Button, Space, Typography, Spin, Dropdown } from 'antd';
 import {
-  DatabaseOutlined, ImportOutlined, UserOutlined, LogoutOutlined,
+  DatabaseOutlined, ImportOutlined, UserOutlined, LogoutOutlined, CloudSyncOutlined,
 } from '@ant-design/icons';
 import LoginPage from './pages/LoginPage';
 import AssetListPage from './pages/AssetListPage';
 import ImportLogsPage from './pages/ImportLogsPage';
+import VmwareSyncPage from './pages/VmwareSyncPage';
 import { useAuthStore } from './store/authStore';
 
 const { Header, Content, Sider } = Layout;
@@ -41,6 +42,7 @@ const AppLayout: React.FC = () => {
   const menuItems = [
     { key: '/', icon: <DatabaseOutlined />, label: 'Inventory' },
     { key: '/import-logs', icon: <ImportOutlined />, label: 'Import Logs' },
+    { key: '/vmware-sync', icon: <CloudSyncOutlined />, label: 'VMware Sync' },
   ];
 
   const userMenuItems = [
@@ -74,6 +76,7 @@ const AppLayout: React.FC = () => {
           <Routes>
             <Route path="/" element={<AssetListPage />} />
             <Route path="/import-logs" element={<ImportLogsPage />} />
+            <Route path="/vmware-sync" element={<VmwareSyncPage />} />
           </Routes>
         </Content>
       </Layout>
