@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: asset-management
+data:
+  NODE_ENV: "production"
+  BACKEND_PORT: "3001"
+  DB_HOST: "postgresql"
+  DB_PORT: "5432"
+  DB_NAME: "asset_management"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  BACKEND_CORS_ORIGIN: "https://assets.company.com,https://assets-admin.company.com"
+  MAX_UPLOAD_SIZE_MB: "50"
+  UPLOAD_DIR: "/tmp/uploads"
+  RATE_LIMIT_WINDOW_MS: "900000"
+  RATE_LIMIT_MAX_REQUESTS: "100"
+  LDAP_URL: "ldap://ad-server.company.com:389"
+  LDAP_BASE_DN: "dc=company,dc=com"
+  LDAP_SEARCH_FILTER: "(sAMAccountName={{username}})"
+  LDAP_GROUP_SEARCH_BASE: "ou=groups,dc=company,dc=com"
+  JWT_EXPIRES_IN: "8h"
+  JWT_REFRESH_EXPIRES_IN: "7d"

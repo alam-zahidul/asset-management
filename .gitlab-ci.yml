@@ -1,0 +1,266 @@
+stages:
+  - lint
+  - test
+  - build
+  - scan
+  - deploy
+
+variables:
+  DOCKER_TLS_CERTDIR: "/certs"
+  BACKEND_IMAGE: $CI_REGISTRY_IMAGE/backend
+  FRONTEND_IMAGE: $CI_REGISTRY_IMAGE/frontend
+  ADMIN_IMAGE: $CI_REGISTRY_IMAGE/admin
+  K8S_NAMESPACE: asset-management
+
+# ==================== LINT ====================
+lint:backend:
+  stage: lint
+  image: node:20-alpine
+  cache:
+    key: backend-$CI_COMMIT_REF_SLUG
+    paths:
+      - backend/node_modules/
+  script:
+    - cd backend
+    - npm ci --ignore-scripts
+    - npm run lint
+  rules:
+    - changes:
+        - backend/**/*
+
+lint:frontend:
+  stage: lint
+  image: node:20-alpine
+  cache:
+    key: frontend-$CI_COMMIT_REF_SLUG
+    paths:
+      - frontend/node_modules/
+  script:
+    - cd frontend
+    - npm ci
+    - npm run lint
+  rules:
+    - changes:
+        - frontend/**/*
+
+lint:admin:
+  stage: lint
+  image: node:20-alpine
+  cache:
+    key: admin-$CI_COMMIT_REF_SLUG
+    paths:
+      - admin/node_modules/
+  script:
+    - cd admin
+    - npm ci
+    - npm run lint
+  rules:
+    - changes:
+        - admin/**/*
+
+# ==================== TEST ====================
+test:backend:
+  stage: test
+  image: node:20-alpine
+  services:
+    - name: postgres:16-alpine
+      alias: postgres
+      variables:
+        POSTGRES_DB: asset_management_test
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: testpass
+    - name: redis:7-alpine
+      alias: redis
+  variables:
+    DB_HOST: postgres
+    DB_PORT: "5432"
+    DB_NAME: asset_management_test
+    DB_USER: postgres
+    DB_PASSWORD: testpass
+    REDIS_HOST: redis
+    REDIS_PORT: "6379"
+    JWT_SECRET: test-jwt-secret-key-123
+    JWT_REFRESH_SECRET: test-jwt-refresh-secret-key-456
+    NODE_ENV: test
+  cache:
+    key: backend-$CI_COMMIT_REF_SLUG
+    paths:
+      - backend/node_modules/
+  script:
+    - cd backend
+    - npm ci --ignore-scripts
+    - npm test
+  coverage: '/All files[^|]*\|[^|]*\s+([\d\.]+)/'
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: backend/coverage/cobertura-coverage.xml
+  rules:
+    - changes:
+        - backend/**/*
+
+# ==================== BUILD ====================
+build:backend:
+  stage: build
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build
+      --tag $BACKEND_IMAGE:$CI_COMMIT_SHA
+      --tag $BACKEND_IMAGE:$CI_COMMIT_REF_SLUG
+      --tag $BACKEND_IMAGE:latest
+      --cache-from $BACKEND_IMAGE:latest
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      backend/
+    - docker push $BACKEND_IMAGE:$CI_COMMIT_SHA
+    - docker push $BACKEND_IMAGE:$CI_COMMIT_REF_SLUG
+    - docker push $BACKEND_IMAGE:latest
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - backend/**/*
+
+build:frontend:
+  stage: build
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build
+      --tag $FRONTEND_IMAGE:$CI_COMMIT_SHA
+      --tag $FRONTEND_IMAGE:$CI_COMMIT_REF_SLUG
+      --tag $FRONTEND_IMAGE:latest
+      --cache-from $FRONTEND_IMAGE:latest
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      frontend/
+    - docker push $FRONTEND_IMAGE:$CI_COMMIT_SHA
+    - docker push $FRONTEND_IMAGE:$CI_COMMIT_REF_SLUG
+    - docker push $FRONTEND_IMAGE:latest
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - frontend/**/*
+
+build:admin:
+  stage: build
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build
+      --tag $ADMIN_IMAGE:$CI_COMMIT_SHA
+      --tag $ADMIN_IMAGE:$CI_COMMIT_REF_SLUG
+      --tag $ADMIN_IMAGE:latest
+      --cache-from $ADMIN_IMAGE:latest
+      --build-arg BUILDKIT_INLINE_CACHE=1
+      admin/
+    - docker push $ADMIN_IMAGE:$CI_COMMIT_SHA
+    - docker push $ADMIN_IMAGE:$CI_COMMIT_REF_SLUG
+    - docker push $ADMIN_IMAGE:latest
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - admin/**/*
+
+# ==================== SECURITY SCAN ====================
+scan:container:
+  stage: scan
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  services:
+    - docker:24-dind
+  variables:
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_VERIFY: "1"
+  script:
+    - trivy image --exit-code 0 --severity HIGH,CRITICAL --format table $BACKEND_IMAGE:$CI_COMMIT_SHA
+    - trivy image --exit-code 0 --severity HIGH,CRITICAL --format table $FRONTEND_IMAGE:$CI_COMMIT_SHA
+    - trivy image --exit-code 0 --severity HIGH,CRITICAL --format table $ADMIN_IMAGE:$CI_COMMIT_SHA
+  allow_failure: true
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+# ==================== DEPLOY ====================
+.deploy_template: &deploy_template
+  stage: deploy
+  image: bitnami/kubectl:latest
+  before_script:
+    - kubectl config use-context $KUBE_CONTEXT
+
+deploy:staging:
+  <<: *deploy_template
+  environment:
+    name: staging
+    url: https://assets-staging.company.com
+  script:
+    - |
+      for manifest in namespace configmap secrets backend frontend admin ingress policies; do
+        sed -e "s|\${CI_REGISTRY_IMAGE}|$CI_REGISTRY_IMAGE|g" \
+            -e "s|:latest|:$CI_COMMIT_SHA|g" \
+            k8s/${manifest}.yaml | kubectl apply -f -
+      done
+    - kubectl -n $K8S_NAMESPACE rollout status deployment/backend --timeout=300s
+    - kubectl -n $K8S_NAMESPACE rollout status deployment/frontend --timeout=300s
+    - kubectl -n $K8S_NAMESPACE rollout status deployment/admin --timeout=300s
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+      when: manual
+
+deploy:production:
+  <<: *deploy_template
+  environment:
+    name: production
+    url: https://assets.company.com
+  script:
+    - |
+      for manifest in namespace configmap secrets backend frontend admin ingress policies; do
+        sed -e "s|\${CI_REGISTRY_IMAGE}|$CI_REGISTRY_IMAGE|g" \
+            -e "s|:latest|:$CI_COMMIT_SHA|g" \
+            k8s/${manifest}.yaml | kubectl apply -f -
+      done
+    - kubectl -n $K8S_NAMESPACE rollout status deployment/backend --timeout=300s
+    - kubectl -n $K8S_NAMESPACE rollout status deployment/frontend --timeout=300s
+    - kubectl -n $K8S_NAMESPACE rollout status deployment/admin --timeout=300s
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+
+# ==================== DB MIGRATION ====================
+migrate:staging:
+  stage: deploy
+  image: node:20-alpine
+  before_script:
+    - cd backend && npm ci --ignore-scripts
+  script:
+    - npm run migrate
+  variables:
+    NODE_ENV: production
+  needs:
+    - deploy:staging
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+      when: manual
+
+migrate:production:
+  stage: deploy
+  image: node:20-alpine
+  before_script:
+    - cd backend && npm ci --ignore-scripts
+  script:
+    - npm run migrate
+  variables:
+    NODE_ENV: production
+  needs:
+    - deploy:production
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
